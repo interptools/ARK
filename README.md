@@ -1,4 +1,4 @@
-# ARK Apparel  — POS
+# ARK Apparel — POS
 
 Built with the Arroyo POS Engine. These files are a complete installable web app.
 
@@ -9,13 +9,13 @@ user site, or on your own domain — no editing required.
 ## Put it online (GitHub Pages, free)
 
 1. Create a new **public** repository on GitHub.
-2. Upload the files so they sit at the **top level of the repository**, not inside
-   a subfolder. Select the files themselves (not the folder that contains them):
+2. Upload every file so they all sit at the **top level of the repository**,
+   side by side. There are no subfolders to preserve:
    - `index.html`
    - `manifest.json`
    - `sw.js`
-   - `.nojekyll`
-   - `icons/` (4 PNG files — keep this folder)
+   - `icon-192.png`, `icon-512.png`, `icon-maskable-512.png`, `apple-touch-icon.png`
+   - `.nojekyll` (optional; skip it if your browser will not save a dotted name)
 3. **Settings → Pages →** Branch `main`, folder `/ (root)` → **Save**.
 4. Wait ~1 minute, then open <https://interptools.github.io/ARK/>
 
