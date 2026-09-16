@@ -1,16 +1,16 @@
-/* arroyo-pos-ark-apparel-mu3tgh5d-6dml — Arroyo POS service worker.
+/* arroyo-pos-ark-apparel-mu3vwpdn-hwft — Arroyo POS service worker.
    Lets the app open with no signal and makes it installable.
    Regenerating the POS produces a new cache name, so phones pick up
    the new build the next time they open the app. */
-const CACHE = 'arroyo-pos-ark-apparel-mu3tgh5d-6dml';
+const CACHE = 'arroyo-pos-ark-apparel-mu3vwpdn-hwft';
 const SHELL = [
   './',
   './index.html',
   './manifest.json',
-  './icons/icon-192.png',
-  './icons/icon-512.png',
-  './icons/icon-maskable-512.png',
-  './icons/apple-touch-icon.png'
+  './icon-192.png',
+  './icon-512.png',
+  './icon-maskable-512.png',
+  './apple-touch-icon.png'
 ];
 
 self.addEventListener('install', function (e) {
@@ -43,9 +43,19 @@ self.addEventListener('fetch', function (e) {
     e.respondWith(
       fetch(req)
         .then(function (res) {
-          var copy = res.clone();
-          caches.open(CACHE).then(function (c) { c.put('./index.html', copy); });
-          return res;
+          // A redirected response must not be returned for a navigation,
+          // and Pages redirects /repo to /repo/, so rebuild it first.
+          var out = res;
+          if (res.redirected && res.body) {
+            out = new Response(res.body, {
+              status: res.status, statusText: res.statusText, headers: res.headers
+            });
+          }
+          try {
+            var copy = out.clone();
+            caches.open(CACHE).then(function (c) { c.put('./index.html', copy); });
+          } catch (err) {}
+          return out;
         })
         .catch(function () { return caches.match('./index.html'); })
     );
