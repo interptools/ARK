@@ -2168,6 +2168,7 @@
             .topbar .right-controls { gap: 4px; }
             .clock { font-size: 12px; }
             .timer-badge { font-size: 9px; padding: 2px 6px; }
+            #cashier-badge { display: none !important; }
 
             /* ---- Bottom nav ---- */
             .bottom-nav { height: auto; }
@@ -2920,7 +2921,7 @@ body[data-shift="off"] #shift-warn { display: none !important; }
     </style>
 <script>
 /* ARROYO POS ENGINE V6 — build configuration written by the builder form. */
-var POS_CFG = {"curr":"₱","locale":"en-PH","taxName":"VAT","taxRate":12,"taxMode":"inclusive","splitMode":"auto","splitMin":820,"navMode":"auto","density":"comfortable","defaultView":"icon","trackStock":true,"shortcuts":true,"shiftMode":"require","openFloat":1000,"denoms":[1000,500,200,100,50,20,10,5,1,0.25]};//POSCFG
+var POS_CFG = {"curr":"₱","locale":"en-PH","taxName":"VAT","taxRate":12,"taxMode":"inclusive","splitMode":"auto","splitMin":820,"navMode":"auto","density":"comfortable","defaultView":"icon","trackStock":true,"shortcuts":true,"shiftMode":"require","openFloat":1000,"denoms":[1000,500,200,100,50,20,10,5,1,0.25],"autoLockMin":0};//POSCFG
 function taxLabelText(){var r=+POS_CFG.taxRate||0;if(!r)return '';return POS_CFG.taxName+' '+(POS_CFG.taxMode==='exclusive'?'':'incl. ')+'('+r+'%)';}
 function splitOK(){var m=POS_CFG.splitMode||'auto';if(m==='never')return false;var min=(m==='wide')?1024:(+POS_CFG.splitMin||820);return window.innerWidth>=min;}
 </script>
@@ -3395,7 +3396,7 @@ body[data-panel="sub"] #nav-back {
             <div class="login-error" id="login-error">❌ Incorrect password. Please try again.</div>
             <button class="login-btn" id="login-btn" onclick="attemptLogin()">Unlock</button>
             <div class="hint" style="margin-top:12px;font-size:13px;">🔑 Login: <strong><span class="pw-hint-mask" id="pw-hint-mask" onclick="revealPwHint()">•••••• (tap to show)</span><span id="pw-hint-real" style="display:none">Admin123</span></strong></div>
-            <div class="auto-lock-info">⏱️ Auto-locks after 30 minutes of inactivity</div>
+            <div class="auto-lock-info" id="auto-lock-info" style="display:none;"></div>
             <div>
                 <span class="reset-link" onclick="resetPassword()">🔑 Forgot password? Reset to default</span>
                 <div class="reset-toast" id="reset-toast">✅ Password reset to <strong>Admin123</strong>! Try logging in.</div>
@@ -3413,6 +3414,7 @@ body[data-panel="sub"] #nav-back {
                 <span id="topbar-store-name">ARK <small>Apparel </small></span>
             </div>
             <div class="right-controls">
+                <span class="timer-badge" id="cashier-badge" style="display:none;"></span>
                 <span class="timer-badge" id="timer-badge">⏱️ 3:00</span>
                 <button class="settings-btn" onclick="logout()" title="Lock Screen">🔒</button>
                 <button class="settings-btn" onclick="toggleFullScreen()" title="Full Screen">⛶</button>
@@ -3929,6 +3931,16 @@ body[data-panel="sub"] #nav-back {
     <!-- V6.4: void sale password gate -->
     <div class="mo" id="void-pw-modal"><div class="modal"><div class="mh"></div><h3>↩️ Void Transaction</h3><div class="msub" id="void-pw-sub">Voiding returns the items to stock and removes the sale from your totals.</div><div class="form-group"><label>Admin Password</label><input type="password" class="password-input" id="void-pw-input" placeholder="••••••" maxlength="20" oninput="checkVoidPassword()" onkeydown="if(event.key==='Enter'&&!this.disabled)confirmVoidWithPassword()" /></div><div class="password-error" id="void-pw-error">Incorrect password. Please try again.</div><div class="mact"><button class="btn btn-s" onclick="closeModal('void-pw-modal')">Cancel</button><button class="btn btn-danger" id="void-pw-btn" onclick="confirmVoidWithPassword()" disabled>Void Sale</button></div></div></div>
 
+    <!-- V7.0: lock screen with a shift running -->
+    <div class="mo" id="logout-choice-modal"><div class="modal"><div class="mh"></div>
+    <h3>🔓 Going off the register?</h3>
+    <div class="msub" id="lo-sub"></div>
+    <div class="mact" style="flex-direction:column;gap:8px;">
+        <button class="btn btn-p" style="width:100%;" onclick="endShiftAndLock()">🔐 Count drawer &amp; end shift</button>
+        <button class="btn btn-s" style="width:100%;" onclick="keepShiftAndLock()">⏸️ Just lock — shift stays open</button>
+        <button class="btn btn-s" style="width:100%;background:none;border:none;color:var(--muted);" onclick="closeModal('logout-choice-modal')">Cancel</button>
+    </div></div></div>
+
     <!-- V6.5: open shift -->
     <div class="mo" id="open-shift-modal"><div class="modal"><div class="mh"></div>
     <h3>🔓 Start Shift</h3>
@@ -4093,7 +4105,11 @@ body[data-panel="sub"] #nav-back {
         const LOGIN_KEY = 'ark_apparel_is_logged_in';
         const LAST_ACTIVITY_KEY = 'ark_apparel_last_activity';
         const LOGO_KEY          = 'ark_apparel_logo';
-        const AUTO_LOCK_MS = 30 * 60 * 1000;
+        // 0 minutes means never lock on idle. Default builds ship with it off
+        // so a quiet counter never logs the cashier out of their shift.
+        const AUTO_LOCK_MIN = Math.max(0, +POS_CFG.autoLockMin || 0);
+        const AUTO_LOCK_MS  = AUTO_LOCK_MIN * 60 * 1000;
+        const AUTO_LOCK_ON  = AUTO_LOCK_MS > 0;
 
         let PRODUCTS = [];
         let sales = [];
@@ -4185,13 +4201,16 @@ body[data-panel="sub"] #nav-back {
         // AUTO-LOCK
         // ================================================================
         function resetAutoLockTimer() {
+            // Activity is still recorded — only the countdown is optional.
             _safeStorage.setItem(LAST_ACTIVITY_KEY, Date.now().toString());
+            if (!AUTO_LOCK_ON) return;
             updateTimerDisplay();
             clearTimeout(autoLockTimer);
             autoLockTimer = setTimeout(checkAutoLock, 1000);
         }
 
         function checkAutoLock() {
+            if (!AUTO_LOCK_ON) return;
             const lastActivity = parseInt(_safeStorage.getItem(LAST_ACTIVITY_KEY)) || 0;
             const now = Date.now();
             const elapsed = now - lastActivity;
@@ -4211,6 +4230,10 @@ body[data-panel="sub"] #nav-back {
             const minutes = Math.floor(remaining / 60);
             const seconds = Math.floor(remaining % 60);
             const badge = document.getElementById('timer-badge');
+            if (!AUTO_LOCK_ON) {
+                if (badge) badge.style.display = 'none';
+                return;
+            }
             if (badge) {
                 if (remaining <= 0) badge.textContent = '⏱️ 0:00';
                 else badge.textContent = `⏱️ ${minutes}:${seconds.toString().padStart(2, '0')}`;
@@ -4237,7 +4260,7 @@ body[data-panel="sub"] #nav-back {
             const isLoggedIn = _safeStorage.getItem(LOGIN_KEY) === 'true';
             const lastActivity = parseInt(_safeStorage.getItem(LAST_ACTIVITY_KEY)) || 0;
             const now = Date.now();
-            if (isLoggedIn && (now - lastActivity) >= AUTO_LOCK_MS) {
+            if (AUTO_LOCK_ON && isLoggedIn && (now - lastActivity) >= AUTO_LOCK_MS) {
                 _safeStorage.setItem(LOGIN_KEY, 'false');
                 showLoginScreen();
                 return;
@@ -4259,7 +4282,8 @@ body[data-panel="sub"] #nav-back {
                 updateClock();
                 setInterval(updateClock, 1000);
                 resetAutoLockTimer();
-                setInterval(updateTimerDisplay, 1000);
+                if (AUTO_LOCK_ON) setInterval(updateTimerDisplay, 1000);
+                else { const _tb = document.getElementById('timer-badge'); if (_tb) _tb.style.display = 'none'; }
             } else {
                 showLoginScreen();
             }
@@ -4306,6 +4330,7 @@ body[data-panel="sub"] #nav-back {
                 loadShift();
                 applyStoreSettings();
                 showToast('Welcome back! 👗');
+                maybeShiftInAfterLogin();
             } else {
                 error.classList.add('show');
                 input.value = '';
@@ -4314,13 +4339,45 @@ body[data-panel="sub"] #nav-back {
             }
         }
 
+        // A tap on the lock button with a shift running asks what to do first.
+        // An automatic lock (inactivity) never does — the cashier has simply
+        // stepped away and the drawer is still theirs.
         function logout(silent = false) {
+            if (!silent && shiftEnabled() && activeShift) { openLogoutChoice(); return; }
+            _doLock(silent);
+        }
+
+        function _doLock(silent) {
             // Lock without confirmation (confirm() blocks on mobile)
             closeAllModals();
             _safeStorage.setItem(LOGIN_KEY, 'false');
             _safeStorage.setItem(LAST_ACTIVITY_KEY, Date.now().toString());
             showLoginScreen();
             if (!silent) showToast('Screen locked 🔒');
+        }
+
+        function openLogoutChoice() {
+            const z = computeDrawer(activeShift);
+            const sub = document.getElementById('lo-sub');
+            if (sub) {
+                sub.textContent = activeShift.cashier + ' has been on the register for ' +
+                    _elapsed(activeShift.openedAt) + '. The drawer should hold ' +
+                    fmt(z.expected) + '.';
+            }
+            document.getElementById('logout-choice-modal').classList.add('open');
+            resetAutoLockTimer();
+        }
+
+        function endShiftAndLock() {
+            _lockAfterShiftClose = true;
+            closeModal('logout-choice-modal');
+            openCloseShiftModal();
+        }
+
+        function keepShiftAndLock() {
+            closeModal('logout-choice-modal');
+            _doLock(true);
+            showToast('Locked \u00b7 ' + activeShift.cashier + '\u2019s shift is still open');
         }
 
         // ================================================================
@@ -4890,6 +4947,8 @@ body[data-panel="sub"] #nav-back {
         }
 
         function closeModal(id) { const el = document.getElementById(id); if (el) el.classList.remove('open');
+            // Backing out of the drawer count cancels the pending lock.
+            if (id === 'close-shift-modal') _lockAfterShiftClose = false;
             resetAutoLockTimer(); }
         function closeAllModals() { document.querySelectorAll('.mo.open').forEach(function(m){ m.classList.remove('open'); }); }
 
@@ -5226,9 +5285,9 @@ body[data-panel="sub"] #nav-back {
             const specs = {
                 name:  { title: '\u270f\ufe0f Edit Name',    label: 'Product name',
                          type: 'text',   mode: 'text',    val: p.name,  cur: p.name },
-                price: { title: '\U0001F4B0 Edit Price',      label: 'Price (' + POS_CFG.curr + ')',
+                price: { title: '💰 Edit Price',      label: 'Price (' + POS_CFG.curr + ')',
                          type: 'number', mode: 'decimal', val: p.price, cur: fmt(p.price) },
-                stock: { title: '\U0001F4E6 Update Stock',    label: 'Stock quantity',
+                stock: { title: '📦 Update Stock',    label: 'Stock quantity',
                          type: 'number', mode: 'numeric', val: p.stock, cur: p.stock + ' in stock' }
             };
             const s = specs[kind];
@@ -5995,6 +6054,8 @@ body[data-panel="sub"] #nav-back {
         let voidedSales  = [];
         let pendingVoidId = null;
         let voidPwMode    = 'void';
+        let _lockAfterShiftClose = false;
+        const LAST_CASHIER_KEY = 'ark_apparel_last_cashier';
 
         function loadVoided() {
             try {
@@ -6269,7 +6330,9 @@ body[data-panel="sub"] #nav-back {
             if (activeShift) { showToast('A shift is already open'); return; }
             const c = document.getElementById('os-cashier');
             const f = document.getElementById('os-float');
-            if (c) c.value = '';
+            let lastCashier = '';
+            try { lastCashier = _safeStorage.getItem(LAST_CASHIER_KEY) || ''; } catch (e) {}
+            if (c) c.value = lastCashier;
             if (f) f.value = (POS_CFG.openFloat != null ? POS_CFG.openFloat : '');
             document.getElementById('os-error')?.classList.remove('show');
             const q = document.getElementById('os-quick');
@@ -6307,10 +6370,11 @@ body[data-panel="sub"] #nav-back {
                 xReads: 0
             };
             saveShift();
+            try { _safeStorage.setItem(LAST_CASHIER_KEY, activeShift.cashier); } catch (e) {}
             closeModal('open-shift-modal');
             renderShift();
             updateShiftIndicators();
-            showToast('Shift open \u2014 float ' + fmt(activeShift.openFloat));
+            showToast('Shift open \u00b7 ' + activeShift.cashier + ' \u00b7 float ' + fmt(activeShift.openFloat));
             resetAutoLockTimer();
         }
 
@@ -6371,7 +6435,7 @@ body[data-panel="sub"] #nav-back {
 
         // --- close shift ---------------------------------------------------
         function openCloseShiftModal() {
-            if (!activeShift) { showToast('No shift is open'); return; }
+            if (!activeShift) { showToast('No shift is open'); _lockAfterShiftClose = false; return; }
             const wrap = document.getElementById('cs-denoms');
             if (wrap) {
                 wrap.innerHTML = denomList().map(function (d, i) {
@@ -6450,6 +6514,9 @@ body[data-panel="sub"] #nav-back {
             }
             if (!activeShift) { closeModal('close-shift-modal'); return; }
 
+            // closeModal() clears this flag, so remember it first.
+            const _wantLock = _lockAfterShiftClose;
+
             const z = computeDrawer(activeShift);
             const counted = countedTotal();
             const breakdown = denomList().map(function (d, i) {
@@ -6494,6 +6561,11 @@ body[data-panel="sub"] #nav-back {
             showToast('Shift closed \u00b7 ' +
                 (Math.abs(rec.variance) < 0.01 ? 'balanced \u2705'
                     : (rec.variance > 0 ? 'over ' : 'short ') + fmt(Math.abs(rec.variance))));
+            if (_wantLock) {
+                _lockAfterShiftClose = false;
+                // let the print dialog settle before the screen locks
+                setTimeout(function () { _doLock(false); }, 700);
+            }
             resetAutoLockTimer();
         }
 
@@ -6619,6 +6691,15 @@ body[data-panel="sub"] #nav-back {
                     ? '🔒 No shift open — tap to start one before selling'
                     : '💵 No shift open — tap to start tracking the drawer';
             }
+            const cb = document.getElementById('cashier-badge');
+            if (cb) {
+                if (shiftEnabled() && activeShift) {
+                    cb.textContent = '👤 ' + activeShift.cashier;
+                    cb.style.display = 'inline-block';
+                } else {
+                    cb.style.display = 'none';
+                }
+            }
             const meta = document.getElementById('shift-hdr-meta');
             if (meta) {
                 meta.textContent = !shiftEnabled() ? ''
@@ -6633,13 +6714,27 @@ body[data-panel="sub"] #nav-back {
             return h > 0 ? (h + 'h ' + m + 'm') : (m + 'm');
         }
 
+        // Called right after a successful unlock. A shift left open is simply
+        // resumed; otherwise the cashier is asked to count in.
+        function maybeShiftInAfterLogin() {
+            if (!shiftEnabled()) return;
+            if (activeShift) {
+                showToast('Shift resumed \u00b7 ' + activeShift.cashier +
+                          ' \u00b7 open ' + _elapsed(activeShift.openedAt));
+                return;
+            }
+            setTimeout(function () {
+                if (!activeShift) openShiftModal();
+            }, 600);
+        }
+
         function renderShift() {
             const body = document.getElementById('shift-body');
             if (!body) return;
             updateShiftIndicators();
 
             if (!shiftEnabled()) {
-                body.innerHTML = '<div class="shift-closed-card"><div class="scc-ic">\U0001F4B5</div>' +
+                body.innerHTML = '<div class="shift-closed-card"><div class="scc-ic">💵</div>' +
                     '<h3>Cash drawer is turned off</h3>' +
                     '<p>This POS was generated without shift tracking.</p></div>';
                 renderShiftHistory();
@@ -6648,10 +6743,10 @@ body[data-panel="sub"] #nav-back {
 
             if (!activeShift) {
                 body.innerHTML = '<div class="shift-closed-card">' +
-                    '<div class="scc-ic">\U0001F512</div><h3>No shift open</h3>' +
+                    '<div class="scc-ic">🔒</div><h3>No shift open</h3>' +
                     '<p>Start a shift and record your opening float before you begin selling.</p>' +
                     '<button class="sa-btn primary" style="max-width:260px;margin:0 auto;" onclick="openShiftModal()">' +
-                    '\U0001F513 Start Shift</button></div>';
+                    '🔓 Start Shift</button></div>';
                 renderShiftHistory();
                 return;
             }
@@ -6693,8 +6788,8 @@ body[data-panel="sub"] #nav-back {
                 '</div>' +
 
                 '<div class="drawer-card"><h3>Non-cash this shift</h3>' +
-                    '<div class="dr-row dr-blue"><span class="dr-l">\U0001F4B3 Card</span><span class="dr-v">' + fmt(z.cardTotal) + '</span></div>' +
-                    '<div class="dr-row dr-blue"><span class="dr-l">\U0001F4F1 E-wallet</span><span class="dr-v">' + fmt(z.walletTotal) + '</span></div>' +
+                    '<div class="dr-row dr-blue"><span class="dr-l">💳 Card</span><span class="dr-v">' + fmt(z.cardTotal) + '</span></div>' +
+                    '<div class="dr-row dr-blue"><span class="dr-l">📱 E-wallet</span><span class="dr-v">' + fmt(z.walletTotal) + '</span></div>' +
                     '<div class="dr-row"><span class="dr-l">Gross charged (all methods)</span><span class="dr-v">' + fmt(z.grossSales) + '</span></div>' +
                 '</div>' +
 
@@ -6705,8 +6800,8 @@ body[data-panel="sub"] #nav-back {
                     '<button class="sa-btn" onclick="openCashMove(\'out\')">\u2796 Cash Out</button>' +
                 '</div>' +
                 '<div class="shift-acts">' +
-                    '<button class="sa-btn ghost" onclick="printXReading()">\U0001F9FE X-Reading</button>' +
-                    '<button class="sa-btn warn" onclick="openCloseShiftModal()">\U0001F510 Close Shift</button>' +
+                    '<button class="sa-btn ghost" onclick="printXReading()">🧾 X-Reading</button>' +
+                    '<button class="sa-btn warn" onclick="openCloseShiftModal()">🔐 Close Shift</button>' +
                 '</div>';
 
             renderShiftHistory();
@@ -6730,7 +6825,7 @@ body[data-panel="sub"] #nav-back {
                         ' \u00b7 ' + t(o) + '\u2013' + t(c) + ' \u00b7 ' + (s.txnCount || 0) + ' sales</div>' +
                     '<div class="shc-m">Float ' + fmt(s.openFloat) + ' \u2192 counted ' + fmt(s.counted) + '</div>' +
                     (s.note ? '<div class="shc-m" style="font-style:italic;">' + s.note + '</div>' : '') +
-                    '<button class="shc-z" onclick="reprintZ(\'' + s.id + '\')">\U0001F5A8\ufe0f Reprint Z</button>' +
+                    '<button class="shc-z" onclick="reprintZ(\'' + s.id + '\')">🖨\ufe0f Reprint Z</button>' +
                 '</div><div class="shc-r"><div class="shc-a">' + fmt(s.expected) + '</div>' +
                     '<div class="shc-var ' + st + '">' + lbl + '</div></div></div>';
             }).join('');
@@ -6823,7 +6918,7 @@ body[data-panel="sub"] #nav-back {
             var ok = _downloadBlob(
                 new Blob(['\ufeff' + out.join('\r\n')], { type: 'text/csv;charset=utf-8' }),
                 store + '-sales-' + stamp + '.csv');
-            if (ok) showToast('Exported ' + rows.length + ' transaction(s) \U0001F4E4');
+            if (ok) showToast('Exported ' + rows.length + ' transaction(s) 📤');
             resetAutoLockTimer();
         }
 
@@ -7012,7 +7107,7 @@ body[data-panel="sub"] #nav-back {
           // A new build id means this is a freshly generated file, so the
           // builder's values apply. The same id means the shop has been using
           // this file and their own edits must win.
-          var fresh=(_safeStorage.getItem(kB)!=='mu3sq74c-kt93');
+          var fresh=(_safeStorage.getItem(kB)!=='mu3tgh5d-6dml');
           function seed(k,v){ if(fresh||_safeStorage.getItem(k)===null) _safeStorage.setItem(k,v); }
           seed(kL,'Admin123');
           seed(kA,'Admin123');
@@ -7022,7 +7117,7 @@ body[data-panel="sub"] #nav-back {
             _safeStorage.setItem(kS,_s);
           }
           if(_logo) seed(kG,_logo);
-          _safeStorage.setItem(kB,'mu3sq74c-kt93');
+          _safeStorage.setItem(kB,'mu3tgh5d-6dml');
           // A POS always opens locked, whatever the previous session did.
           _safeStorage.setItem(_P+'is_logged_in','false');
         })();

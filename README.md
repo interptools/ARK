@@ -2,17 +2,22 @@
 
 Built with the Arroyo POS Engine. These files are a complete installable web app.
 
+Nothing in these files is tied to a particular web address. Every path is
+relative, so the same bundle works at a repository subpath, at the root of a
+user site, or on your own domain — no editing required.
+
 ## Put it online (GitHub Pages, free)
 
 1. Create a new **public** repository on GitHub.
-2. Upload **everything in this folder**, keeping the `icons/` folder intact:
+2. Upload the files so they sit at the **top level of the repository**, not inside
+   a subfolder. Select the files themselves (not the folder that contains them):
    - `index.html`
    - `manifest.json`
    - `sw.js`
    - `.nojekyll`
-   - `icons/` (4 PNG files)
+   - `icons/` (4 PNG files — keep this folder)
 3. **Settings → Pages →** Branch `main`, folder `/ (root)` → **Save**.
-4. Wait ~1 minute, then open `https://<username>.github.io/ark-apparel/`
+4. Wait ~1 minute, then open <https://interptools.github.io/ARK/>
 
 ## Install on a phone
 
