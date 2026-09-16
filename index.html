@@ -3502,6 +3502,10 @@ body[data-panel="sub"] #nav-back {
                             <button onclick="applyDiscount()">Apply</button>
                             <button type="button" class="disc-clear" onclick="clearDiscount()" title="Remove discount">✕</button>
                         </div>
+                        <div id="gcash-pay-note" style="display:none;font-size:11px;color:var(--muted);background:var(--gcash-bg);border:1px solid #007BFF;border-radius:9px;padding:8px 10px;margin-bottom:8px;line-height:1.5;">
+                            💡 Pick how the customer <b>settled</b> this. The cash-in / cash-out amount itself
+                            is always treated as notes crossing the counter, so the drawer stays right either way.
+                        </div>
                         <div class="pay-tog">
                             <button type="button" class="pay-btn active" onclick="setPayment('Cash',this)">💵 Cash</button>
                             <button type="button" class="pay-btn" id="pay-btn-card" onclick="setPayment('Card',this)">💳 Card</button>
@@ -3998,8 +4002,9 @@ body[data-panel="sub"] #nav-back {
     <div class="msub">Count the drawer and enter how many of each note and coin you have.</div>
     <div class="denom-tbl" id="cs-denoms"></div>
     <div class="count-summary">
+        <div id="cs-breakdown"></div>
+        <div class="dr-row dr-strong"><span class="dr-l">System expects</span><span class="dr-v" id="cs-expected">₱0.00</span></div>
         <div class="dr-row"><span class="dr-l">Counted in drawer</span><span class="dr-v" id="cs-counted">₱0.00</span></div>
-        <div class="dr-row"><span class="dr-l">System expects</span><span class="dr-v" id="cs-expected">₱0.00</span></div>
     </div>
     <div class="variance-box ok" id="cs-var-box">
         <div class="vb-l" id="cs-var-lbl">Balanced</div>
@@ -4996,6 +5001,8 @@ body[data-panel="sub"] #nav-back {
             const btn = document.getElementById('chk-btn');
             if (btn) { btn.disabled = false;
                 btn.textContent = `Charge ${fmt(total)}`; }
+            const gpn = document.getElementById('gcash-pay-note');
+            if (gpn) gpn.style.display = cart.some(isGCashItem) ? 'block' : 'none';
             resetAutoLockTimer();
         }
 
@@ -6551,18 +6558,19 @@ body[data-panel="sub"] #nav-back {
 
         // --- per-sale physical cash movement -------------------------------
         function drawerDeltaForSale(s) {
-            let gOut = 0;
+            let gIn = 0, gOut = 0;
             (s.items || []).forEach(function (it) {
-                if (it.type === 'gcash_out') gOut += (Number(it.price) || 0) * (Number(it.qty) || 1);
+                const amt = (Number(it.price) || 0) * (Number(it.qty) || 1);
+                if (it.type === 'gcash_in') gIn += amt;
+                else if (it.type === 'gcash_out') gOut += amt;
             });
+            // A GCash principal is physical cash no matter which payment button
+            // was pressed: a cash-in is handed over the counter, a cash-out is
+            // handed back. The payment button only describes how the rest of the
+            // basket — goods, service fee, tax — was settled.
+            const settled = (Number(s.total) || 0) - gIn - gOut;
             const isCash = (s.paymentMethod || 'Cash') === 'Cash';
-            // The charged total is exactly what the customer handed over, so the
-            // drawer follows it rather than rebuilding the figure from subtotal
-            // (which silently dropped tax in exclusive mode).
-            // A cash-out is the one exception: its principal is counted into the
-            // total but physically leaves the drawer, hence subtracting it twice.
-            if (isCash) return (Number(s.total) || 0) - 2 * gOut;
-            return -gOut;
+            return (gIn - gOut) + (isCash ? settled : 0);
         }
 
         function computeDrawer(shift) {
@@ -6768,6 +6776,27 @@ body[data-panel="sub"] #nav-back {
             const eEl = document.getElementById('cs-expected');
             if (cEl) cEl.textContent = fmt(counted);
             if (eEl) eEl.textContent = fmt(z.expected);
+
+            // Spell out how the expected figure was reached, so a difference
+            // points at the line that caused it.
+            const bd = document.getElementById('cs-breakdown');
+            if (bd) {
+                const line = function (label, val, cls) {
+                    if (!val) return '';
+                    return '<div class="dr-row ' + (cls || '') + '"><span class="dr-l">' + label +
+                           '</span><span class="dr-v">' + (val < 0 ? '-' : '') + fmt(Math.abs(val)) + '</span></div>';
+                };
+                bd.innerHTML =
+                    '<div class="dr-row"><span class="dr-l">Opening float</span><span class="dr-v">' + fmt(z.openFloat) + '</span></div>' +
+                    line('+ Cash sales &amp; fees', z.cashSales, 'dr-green') +
+                    line('+ GCash cash in', z.gcashIn, 'dr-green') +
+                    line('\u2212 GCash cash out', -z.gcashOut, 'dr-red') +
+                    line('+ Cash in (manual)', z.payIn, 'dr-green') +
+                    line('\u2212 Cash out (manual)', -z.payOut, 'dr-red') +
+                    line('\u2212 Cash expenses', -z.cashExpense, 'dr-red') +
+                    '<div class="dr-note">' + z.txnCount + ' transaction' + (z.txnCount === 1 ? '' : 's') +
+                    ' in this shift. Card and e-wallet money is not in the drawer.</div>';
+            }
             const box = document.getElementById('cs-var-box');
             const lbl = document.getElementById('cs-var-lbl');
             const amt = document.getElementById('cs-var-amt');
@@ -7393,7 +7422,7 @@ body[data-panel="sub"] #nav-back {
           // A new build id means this is a freshly generated file, so the
           // builder's values apply. The same id means the shop has been using
           // this file and their own edits must win.
-          var fresh=(_safeStorage.getItem(kB)!=='mu3vwpdn-hwft');
+          var fresh=(_safeStorage.getItem(kB)!=='mu3wj9t9-ggvp');
           function seed(k,v){ if(fresh||_safeStorage.getItem(k)===null) _safeStorage.setItem(k,v); }
           seed(kL,'Admin123');
           seed(kA,'Admin123');
@@ -7403,7 +7432,7 @@ body[data-panel="sub"] #nav-back {
             _safeStorage.setItem(kS,_s);
           }
           if(_logo) seed(kG,_logo);
-          _safeStorage.setItem(kB,'mu3vwpdn-hwft');
+          _safeStorage.setItem(kB,'mu3wj9t9-ggvp');
           // A POS always opens locked, whatever the previous session did.
           _safeStorage.setItem(_P+'is_logged_in','false');
         })();
