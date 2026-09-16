@@ -1,8 +1,8 @@
-/* arroyo-pos-ark-apparel-mu3vwpdn-hwft — Arroyo POS service worker.
+/* arroyo-pos-ark-apparel-mu3wj9t9-ggvp — Arroyo POS service worker.
    Lets the app open with no signal and makes it installable.
    Regenerating the POS produces a new cache name, so phones pick up
    the new build the next time they open the app. */
-const CACHE = 'arroyo-pos-ark-apparel-mu3vwpdn-hwft';
+const CACHE = 'arroyo-pos-ark-apparel-mu3wj9t9-ggvp';
 const SHELL = [
   './',
   './index.html',
